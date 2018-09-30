@@ -7,12 +7,14 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
+import android.support.annotation.NonNull;
 import android.support.v4.view.GravityCompat;
 import android.support.v7.widget.AppCompatImageView;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.LinearSnapHelper;
 import android.support.v7.widget.RecyclerView;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -20,9 +22,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class RecyclerViewBanner extends FrameLayout {
 
@@ -39,10 +38,6 @@ public class RecyclerViewBanner extends FrameLayout {
     private RecyclerView mRecyclerView;
     private LinearLayout mLinearLayout;
 
-    private RecyclerAdapter adapter;
-    private OnRvBannerClickListener onRvBannerClickListener;
-    private OnSwitchRvBannerListener onSwitchRvBannerListener;
-    private List<Object> mData = new ArrayList<>();
     private int startX, startY, currentIndex;
     private boolean isPlaying;
     private Handler handler = new Handler();
@@ -115,19 +110,35 @@ public class RecyclerViewBanner extends FrameLayout {
 
         new PagerSnapHelper().attachToRecyclerView(mRecyclerView);
         mRecyclerView.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false));
-        adapter = new RecyclerAdapter();
-        mRecyclerView.setAdapter(adapter);
         mRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
 
             @Override
             public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
                 super.onScrolled(recyclerView, dx, dy);
+                Log.d("TAG", "onScrolled: ");
                 int next = ((LinearLayoutManager) recyclerView.getLayoutManager()).findLastVisibleItemPosition();
                 if (next != currentIndex) {
                     currentIndex = next;
                     if (isShowIndicator && isTouched) {
                         isTouched = false;
                         switchIndicator();
+                    }
+                }
+            }
+
+            @Override
+            public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
+                super.onScrollStateChanged(recyclerView, newState);
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    Log.d("TAG", "onScrollStateChanged: ");
+                    int first = ((LinearLayoutManager) recyclerView.getLayoutManager()).findFirstVisibleItemPosition();
+                    int last = ((LinearLayoutManager) recyclerView.getLayoutManager()).findLastVisibleItemPosition();
+                    if (currentIndex != last) {
+                        currentIndex = last;
+                        if (isShowIndicator && isTouched) {
+                            isTouched = false;
+                            switchIndicator();
+                        }
                     }
                 }
             }
@@ -143,14 +154,6 @@ public class RecyclerViewBanner extends FrameLayout {
         linearLayoutParams.setMargins(margin, margin, margin, margin);
         addView(mRecyclerView, vpLayoutParams);
         addView(mLinearLayout, linearLayoutParams);
-
-        // 便于在xml中编辑时观察，运行时不执行
-        if (isInEditMode()) {
-            for (int i = 0; i < 3; i++) {
-                mData.add("");
-            }
-            createIndicators();
-        }
     }
 
     /**
@@ -189,7 +192,7 @@ public class RecyclerViewBanner extends FrameLayout {
      */
     private synchronized void setPlaying(boolean playing) {
         if (isAutoPlaying) {
-            if (!isPlaying && playing && adapter != null && adapter.getItemCount() > 2) {
+            if (!isPlaying && playing && getAdapter() != null && mDataSize > 1) {
                 handler.postDelayed(playTask, mInterval);
                 isPlaying = true;
             } else if (isPlaying && !playing) {
@@ -208,20 +211,16 @@ public class RecyclerViewBanner extends FrameLayout {
         this.isAutoPlaying = isAutoPlaying;
     }
 
-    /**
-     * 设置轮播数据集
-     *
-     * @param data Banner对象列表
-     */
-    public void setRvBannerData(List data) {
+    private int mDataSize;
+
+    public void setAdapter(@NonNull RecyclerAdapter adapter) {
+        mDataSize = adapter.getDataSize();
+        mRecyclerView.setAdapter(adapter);
+
         setPlaying(false);
-        mData.clear();
-        if (data != null) {
-            mData.addAll(data);
-        }
-        if (mData.size() > 1) {
+        if (mDataSize > 1) {
             adapter.notifyDataSetChanged();
-            currentIndex = Integer.MAX_VALUE / 2 - (Integer.MAX_VALUE / 2) % mData.size();
+            currentIndex = Integer.MAX_VALUE / 2 - (Integer.MAX_VALUE / 2) % mDataSize;
             // 将起始点设为最靠近的 MAX_VALUE/2 的，且为mData.size()整数倍的位置
             mRecyclerView.scrollToPosition(currentIndex);
             if (isShowIndicator) {
@@ -234,19 +233,24 @@ public class RecyclerViewBanner extends FrameLayout {
         }
     }
 
+    public RecyclerView.Adapter getAdapter() {
+        return mRecyclerView.getAdapter();
+    }
+
     /**
      * 指示器整体由数据列表容量数量的AppCompatImageView均匀分布在一个横向的LinearLayout中构成
      * 使用AppCompatImageView的好处是在Fragment中也使用Compat相关属性
      */
     private void createIndicators() {
         mLinearLayout.removeAllViews();
-        for (int i = 0; i < mData.size(); i++) {
+        for (int i = 0; i < mDataSize; i++) {
             AppCompatImageView img = new AppCompatImageView(getContext());
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.leftMargin = mSpace / 2;
             lp.rightMargin = mSpace / 2;
-            if (mSize >= dp2px(4)) { // 设置了indicatorSize属性
+            if (mSize >= dp2px(4)) {
+                // 设置了indicatorSize属性
                 lp.width = lp.height = mSize;
             } else {
                 // 如果设置的resource.xml没有明确的宽高，默认最小2dp，否则太小看不清
@@ -315,45 +319,6 @@ public class RecyclerViewBanner extends FrameLayout {
         super.onWindowVisibilityChanged(visibility);
     }
 
-    /**
-     * RecyclerView适配器
-     */
-    private class RecyclerAdapter extends RecyclerView.Adapter {
-
-        @Override
-        public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            AppCompatImageView img = new AppCompatImageView(parent.getContext());
-            RecyclerView.LayoutParams params = new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT);
-            img.setLayoutParams(params);
-            img.setId(R.id.rvb_banner_image_view_id);
-            img.setScaleType(AppCompatImageView.ScaleType.CENTER_CROP);
-            img.setOnClickListener(new OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (onRvBannerClickListener != null) {
-                        onRvBannerClickListener.onClick(currentIndex % mData.size());
-                    }
-                }
-            });
-            return new RecyclerView.ViewHolder(img) {
-            };
-        }
-
-        @Override
-        public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
-            AppCompatImageView img = (AppCompatImageView) holder.itemView.findViewById(R.id.rvb_banner_image_view_id);
-            if (onSwitchRvBannerListener != null) {
-                onSwitchRvBannerListener.switchBanner(position % mData.size(), img);
-            }
-        }
-
-        @Override
-        public int getItemCount() {
-            return mData == null ? 0 : mData.size() < 2 ? mData.size() : Integer.MAX_VALUE;
-        }
-    }
-
     private class PagerSnapHelper extends LinearSnapHelper {
 
         @Override
@@ -367,6 +332,23 @@ public class RecyclerViewBanner extends FrameLayout {
                 currentPos = targetPos < currentPos ? last : (targetPos > currentPos ? first : currentPos);
                 targetPos = targetPos < currentPos ? currentPos - 1 : (targetPos > currentPos ? currentPos + 1 : currentPos);
             }
+            Log.d("TAG", "findTargetSnapPosition: " + velocityX);
+
+//            int next;
+//            if (velocityX > 0) {
+//                // 往右滑
+//                next = ((LinearLayoutManager) mRecyclerView.getLayoutManager()).findLastVisibleItemPosition();
+//            } else {
+//                next = ((LinearLayoutManager) mRecyclerView.getLayoutManager()).findLastVisibleItemPosition();
+//            }
+//            if (next != currentIndex) {
+//                currentIndex = next;
+//                if (isShowIndicator && isTouched) {
+//                    isTouched = false;
+//                    switchIndicator();
+//                }
+//            }
+            Log.d("TAG", "findTargetSnapPosition: " + targetPos);
             return targetPos;
         }
     }
@@ -378,7 +360,7 @@ public class RecyclerViewBanner extends FrameLayout {
         if (mLinearLayout != null && mLinearLayout.getChildCount() > 0) {
             for (int i = 0; i < mLinearLayout.getChildCount(); i++) {
                 ((AppCompatImageView) mLinearLayout.getChildAt(i)).setImageDrawable(
-                        i == currentIndex % mData.size() ? mSelectedDrawable : mUnselectedDrawable);
+                        i == currentIndex % mDataSize ? mSelectedDrawable : mUnselectedDrawable);
             }
         }
     }
@@ -395,22 +377,6 @@ public class RecyclerViewBanner extends FrameLayout {
      */
     public RecyclerView getRecyclerView() {
         return mRecyclerView;
-    }
-
-    public interface OnSwitchRvBannerListener {
-        void switchBanner(int position, AppCompatImageView bannerView);
-    }
-
-    public void setOnSwitchRvBannerListener(OnSwitchRvBannerListener listener) {
-        this.onSwitchRvBannerListener = listener;
-    }
-
-    public interface OnRvBannerClickListener {
-        void onClick(int position);
-    }
-
-    public void setOnRvBannerClickListener(OnRvBannerClickListener onRvBannerClickListener) {
-        this.onRvBannerClickListener = onRvBannerClickListener;
     }
 
 }
